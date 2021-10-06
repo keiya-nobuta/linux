@@ -15,6 +15,7 @@
 #include <linux/init.h>
 #include <linux/sched.h>
 #include <linux/smp.h>
+#include <linux/stacktrace.h>
 #include <linux/timex.h>
 #include <linux/errno.h>
 #include <linux/profile.h>
@@ -29,7 +30,6 @@
 #include <clocksource/arm_arch_timer.h>
 
 #include <asm/thread_info.h>
-#include <asm/stacktrace.h>
 #include <asm/paravirt.h>
 
 static bool profile_pc_cb(void *arg, unsigned long pc)
