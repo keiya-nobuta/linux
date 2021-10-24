@@ -127,7 +127,6 @@ static void notrace unwind_start(struct stackframe *frame, unsigned long fp,
 	frame->prev_type = STACK_TYPE_UNKNOWN;
 	frame->failed = false;
 	frame->reliable = true;
-	unwind_check_reliability(frame);
 }
 
 NOKPROBE_SYMBOL(unwind_start);
@@ -211,7 +210,6 @@ static void notrace unwind_next(struct task_struct *tsk,
 #endif /* CONFIG_FUNCTION_GRAPH_TRACER */
 
 	frame->pc = ptrauth_strip_insn_pac(frame->pc);
-	unwind_check_reliability(frame);
 }
 
 NOKPROBE_SYMBOL(unwind_next);
@@ -232,29 +230,49 @@ static bool notrace unwind_continue(struct task_struct *task,
 		return false;
 	}
 
-	if (frame->fp == (unsigned long)task_pt_regs(task)->stackframe) {
+	if (frame->fp == (unsigned long)task_pt_regs(task)->stackframe)
 		/* Final frame; nothing to unwind */
 		return false;
-	}
+
 	return true;
 }
 
 NOKPROBE_SYMBOL(unwind_continue);
 
-static bool notrace unwind(struct task_struct *tsk,
+static void notrace unwind(struct task_struct *tsk,
 			   unsigned long fp, unsigned long pc,
 			   bool (*fn)(void *, unsigned long),
 			   void *data)
 {
 	struct stackframe frame;
 
-	unwind_start(&frame, fp, pc);
-	while (unwind_continue(tsk, &frame, fn, data))
-		unwind_next(tsk, &frame);
-	return frame.reliable;
+	for (unwind_start(&frame, fp, pc);
+	     unwind_continue(tsk, &frame, fn, data);
+	     unwind_next(tsk, &frame));
 }
 
 NOKPROBE_SYMBOL(unwind);
+
+static bool notrace unwind_reliable(struct task_struct *tsk,
+			   unsigned long fp, unsigned long pc,
+			   bool (*fn)(void *, unsigned long),
+			   void *data)
+{
+	struct stackframe frame;
+
+	for (unwind_start(&frame, fp, pc);
+	     unwind_continue(tsk, &frame, fn, data);
+	     unwind_next(tsk, &frame)) {
+		unwind_check_reliability(&frame);
+		if (!frame.reliable)
+			break;
+	}
+
+	return (frame.reliable && !frame.failed);
+}
+
+NOKPROBE_SYMBOL(unwind_reliable);
+
 
 static bool dump_backtrace_entry(void *arg, unsigned long where)
 {
@@ -334,7 +352,7 @@ noinline int notrace arch_stack_walk_reliable(stack_trace_consume_fn consume_fn,
 		fp = thread_saved_fp(task);
 		pc = thread_saved_pc(task);
 	}
-	if (unwind(task, fp, pc, consume_fn, cookie))
+	if (unwind_reliable(task, fp, pc, consume_fn, cookie))
 		return 0;
 	return -EINVAL;
 }
